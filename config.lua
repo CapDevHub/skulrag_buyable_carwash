@@ -1,6 +1,5 @@
 Config = {}
 
-
 -- Lang
 Config.Locale = 'en'
 

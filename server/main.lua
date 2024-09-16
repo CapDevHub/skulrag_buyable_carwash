@@ -1,5 +1,6 @@
-ESX = nil
 local Carwash = {}
+local ESX = nil
+local QBCore = nil
 
 TriggerEvent('esx:getSharedObject', function(obj)
     ESX = obj
@@ -18,7 +19,9 @@ AddEventHandler('buyable_carwash:getOwners', function()
             isForSale = cwListResult[i].isForSale
         }
     end
-    local xPlayer = ESX.GetPlayerFromId(_source)
+
+    local xPlayer = nil
+    xPlayer = ESX.GetPlayerFromId(_source)    
     if xPlayer ~= nil then
         TriggerClientEvent('buyable_carwash:saveOwners', _source, Carwash, xPlayer.identifier)
     else
@@ -40,9 +43,14 @@ end)
 RegisterServerEvent('buyable_carwash:buy_carwash')
 AddEventHandler('buyable_carwash:buy_carwash', function(zone)
     local _source = source
-    local xPlayer = ESX.GetPlayerFromId(_source)
-    local playerMoney = xPlayer.getMoney()
+    local xPlayer
+    local playerMoney
     local xOwner
+    local identifier
+
+    xPlayer = ESX.GetPlayerFromId(_source)
+    identifier = xPlayer.identifier
+    playerMoney = xPlayer.getMoney()
     if Carwash[zone].owner ~= nil then
       xOwner = ESX.GetPlayerFromIdentifier(Carwash[zone].owner)
     end
@@ -53,17 +61,17 @@ AddEventHandler('buyable_carwash:buy_carwash', function(zone)
 
     if playerMoney >= price then
         MySQL.Sync.execute('UPDATE `carwash_list` SET `price`=0, `owner`=@identifier, `isForSale`=@forsale WHERE name = @zone', {
-            ['@identifier'] = xPlayer.identifier,
+            ['@identifier'] = identifier,
             ['@forsale'] = false,
             ['@zone'] = zone,
-        }, function(_)
-        end)
-        xPlayer.removeMoney(price)
-        TriggerClientEvent('buyable_carwash:carwashBought', -1, zone, xPlayer.identifier)
+        }, function(_)end)
+
+        xPlayer.removeMoney(tonumber(price))
+        TriggerClientEvent('buyable_carwash:carwashBought', -1, zone, identifier)
         if xOwner ~= nil then
             xOwner.addAccountMoney('bank', price)
         end
-        print(('[Carwash bought] FROM : Owner Identifier: %s /  BY : Identifier: %s'):format(Carwash[zone].owner, xPlayer.identifier))
+        print(('[Carwash bought] FROM : Owner Identifier: %s /  BY : Identifier: %s'):format(Carwash[zone].owner, identifier))
         TriggerClientEvent('esx:showNotification', _source, _U('bought', price))
     else
         TriggerClientEvent('esx:showNotification', _source, _U('not_enough_money'))
@@ -73,11 +81,16 @@ end)
 --
 RegisterServerEvent('buyable_carwash:withdrawMoney')
 AddEventHandler('buyable_carwash:withdrawMoney', function(zone, amount)
-  local xPlayer = ESX.GetPlayerFromId(source)
-  amount = ESX.Math.Round(tonumber(amount))
+  local _source = source
+  local xPlayer  
+  local identifier
+
+    xPlayer = ESX.GetPlayerFromId(_source)
+    identifier = xPlayer.identifier
+    amount = ESX.Math.Round(tonumber(amount))
 
   local accountMoney = MySQL.Sync.fetchScalar('SELECT accountMoney from `carwash_list` WHERE name=@zone AND owner=@owner', {
-      ['@owner'] = xPlayer.identifier,
+      ['@owner'] = identifier,
       ['@zone'] = zone,
   }, function(_)end)
   if amount > 0 and accountMoney >= amount then
@@ -86,31 +99,32 @@ AddEventHandler('buyable_carwash:withdrawMoney', function(zone, amount)
         ['@newAmount'] = newAmount,
         ['@zone'] = zone,
     }, function(_)end)
-    xPlayer.addMoney(amount)
-    print(('[Carwash withdrawMoney] BY : Owner Identifier: %s / Quantity : %d'):format(xPlayer.identifier, amount))
-    xPlayer.showNotification(_U('have_withdrawn', ESX.Math.GroupDigits(amount)))
+    xPlayer.addAccountMoney('bank', amount)
+    print(('[Carwash withdrawMoney] BY : Owner Identifier: %s / Quantity : %d'):format(identifier, amount))
+    
+    TriggerClientEvent('esx:showNotification', _source, _U('have_withdrawn', ESX.Math.GroupDigits(amount)))
   else
-    xPlayer.showNotification(_U('invalid_amount'))
+    TriggerClientEvent('esx:showNotification', _source, _U('invalid_amount'))
   end
 end)
 
---
-ESX.RegisterServerCallback('buyable_carwash:getAccountMoney', function(source, cb, zone)
-    local accountMoney = MySQL.Sync.fetchScalar('SELECT accountMoney from `carwash_list` WHERE name=@zone', {
-      ['@zone'] = zone,
-  }, function(_)end)
-  cb(accountMoney)
-end)
+-- Callbacks
 
---
-ESX.RegisterServerCallback('buyable_carwash:isforsale', function(source, cb, zone)
-  local price = MySQL.Sync.fetchScalar('SELECT price from `carwash_list` WHERE name=@zone', {
-      ['@zone'] = zone,
-  }, function(_)end)
-  cb(Carwash[zone].isForSale, price)
-end)
+    ESX.RegisterServerCallback('buyable_carwash:getAccountMoney', function(source, cb, zone)
+        local accountMoney = MySQL.Sync.fetchScalar('SELECT accountMoney from `carwash_list` WHERE name=@zone', {
+          ['@zone'] = zone,
+      }, function(_)end)
+      cb(accountMoney)
+    end)
 
---
+    ESX.RegisterServerCallback('buyable_carwash:isforsale', function(source, cb, zone)
+      local price = MySQL.Sync.fetchScalar('SELECT price from `carwash_list` WHERE name=@zone', {
+          ['@zone'] = zone,
+      }, function(_)end)
+      cb(Carwash[zone].isForSale, price)
+    end)
+
+    --
 RegisterServerEvent('buyable_carwash:cancelselling')
 AddEventHandler('buyable_carwash:cancelselling', function(zone)
     Carwash[zone].isForSale = false
@@ -148,6 +162,7 @@ end
 RegisterServerEvent('buyable_carwash:checkMoney')
 AddEventHandler('buyable_carwash:checkMoney', function(price, zone)
     local _source = source
+
     local xPlayer = ESX.GetPlayerFromId(_source)
     price = tonumber(price)
     if price < xPlayer.getAccount('bank').money then
